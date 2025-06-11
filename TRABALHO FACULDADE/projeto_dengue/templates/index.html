@@ -1,0 +1,354 @@
+    <!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+        <meta charset="UTF-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Painel Dengue RJ</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+        <!-- Leaflet CSS -->
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"/>
+        <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+    </head>
+    <body class="bg-gray-100 font-sans">
+        <!-- Cabeçalho-->
+        <header class="bg-red-600 text-white p-4 shadow-md">
+            <h1 class="text-2x1 font-bold">Painel de Monitoramento da Dengue - RJ</h1>
+            <p class="text-sm">Atualizado em <span id="data-atualizacao"> --/--/----</span></p>
+        </header>
+
+        <!-- KPIs principais-->
+        <section class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4">
+            <div class="bg-white p-4 rounded-xl shadow-md">
+                <p class="text-sm text-gray-500">Total de Casos</p>
+                <h2 class="text-xl font-bold text-red-600" id="kpi-total-casos">--</h2>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-md">
+                <p class="text-sm text-gray-500">Incidência (100 mil hab)</p>
+                <h2 class="text-xl font-bold text-red-600" id="kpi-incidencia">--</h2>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-md">
+                <p class="text-sm text-gray-500">Município com maior incidência</p>
+                <h2 class="text-xl font-bold text-red-600" id="kpi-top-municipio">--</h2>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-md">
+                <p class="text-sm text-gray-500">Variação mensal</p>
+                <h2 class="text-xl font-bold text-red-600" id="kpi-variacao">--</h2>
+            </div>
+        </section>
+
+        <!-- Gráficos e Mapa (espaço reservado) -->
+        <section class="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="bg-white p-4 rounded-xl shadow-md">
+                <h3 class="text-lg font-semibold mb-2">Evolução dos Casos</h3>
+                <canvas id="grafico-evolucao"></canvas>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-md">
+                <h3 class="text-lg font-semibold mb-2">Mapa de Calor</h3>
+                <div id="mapa" class="h-96">[Mapa aqui]</div>
+                <div class="mt-2 text-sm text-gray-700" id="legenda-mapa">
+                    <p class="font-semibold mb-1">Legenda - Nível de Incidência</p>
+                    <div class="flex flex-wrap gap-4">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block w-4 h-4 rounded-full" style="background-color: #31a354;"></span>
+                            <span>Nível 1 (Baixo)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block w-4 h-4 rounde-full" style="background-color: #fed976;"></span>
+                            <span>Nível 2 (Moderado)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block w-4 h-4 rounde-full" style="background-color: #fd8d3c;"></span>
+                            <span>Nível 3 (Alto)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block w-4 h-4 rounde-full" style="background-color: #e32a1c;"></span>
+                            <span>Nível 4 (Crítico)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+        </section>
+
+        <!-- KPIs por Município -->
+        <section class="p-4">
+            <h2 class="text-xl font-bold mb-4">Indicadores por Município</h2>
+            <div id="cards-kpis-municipios" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Cards dinâmicos serão inseridos aqui -->
+            </div>
+        </section>
+        <script>
+            // Aqui futuramente carregaremos os dados da API Flask com fetch('/kpi')            
+            document.getElementById("data-atualizacao").textContent = new Date().toLocaleDateString();
+
+            async function carregarKpisAtemporais() {
+                const resposta = await fetch('/kpis/atemporais');
+                const dados = await resposta.json();
+
+                const container = document.getElementById("cards-kpis-municipios");
+
+                // Inicializar variáveis para os KPIs principais
+                let totalCasos = 0;
+                let totalPop = 0;
+                let maiorIncidencia = 0;
+                let municipioTop = "";
+
+                dados.forEach( mun => {
+                    // Soma total de casos e população
+                    totalCasos += mun.total_casos;
+                    totalPop += mun.pop;
+
+                    // Verifica maior incidência
+                    if (mun.incidencia_100k > maiorIncidencia) {
+                        maiorIncidencia = mun.incidencia_100k;
+                        municipioTop = mun.municipios;
+                    }
+
+                    // Criar card por município
+                    const card = document.createElement("div");
+                    card.className = "bg-white rounded-xl shadow-md p-4";
+
+                    card.innerHTML = `
+                        <h3 class="text-lg font-bold text-red-600 mb-2">${mun.municipios}</h3>
+                        <p class="text-sm text-gray-600"><strong>Total de casos:</strong> ${mun.total_casos}</p>
+                        <p class="text-sm text-gray-600"><strong>Incidência:</strong> ${mun.incidencia_100k.toFixed(2)}</p>
+                        <p class="text-sm text-gray-600"><strong>Semana pico:</strong> ${mun.semana_pico}</p>
+                        <details class="mt-2">
+                        <summary class="text-sm text-blue-600 cursor-pointer hover:underline">Ver mais</summary>
+                        <div class="mt-2 space-y-1 text-sm text-gray-700">
+                            <p><strong>Casos no pico:</strong> ${mun.casos_pico}</p>
+                            <p><strong>Densidade de casos:</strong> ${mun.densidade_casos}</p>
+                            <p><strong>Teve risco alto:</strong> ${mun.teve_risco_alto ? "Sim" : "Não"}</p>
+                            <p><strong>Risco alto última semana:</strong> ${mun.teve_risco_alto_ultima_semana ? "Sim" : "Não"}</p>
+                            <p><strong>Cor. temp. média x casos:</strong> ${mun.corrrelacao_tempmed_casos.toFixed(2)}</p>
+                            <p><strong>Cor. umidade média x casos:</strong> ${mun.kpi_correlacao_umid_media_casos.toFixed(2)}</p>
+                            <p><strong>Média temp. máx:</strong> ${mun.media_temp_max.toFixed(1)}°C</p>
+                            <p><strong>Média temp. min:</strong> ${mun.media_temp_min.toFixed(1)}°C</p>
+                            <p><strong>Média temp. média:</strong> ${mun.media_temp_media.toFixed(1)}°C</p>
+                            <p><strong>Média umid. máx:</strong> ${mun.media_umidade_max.toFixed(1)}%</p>                                <p><strong>Média umid. min:</strong> ${mun.media_umidade_mini.toFixed(1)}%</p>
+                            <p><strong>Média umid. média:</strong> ${mun.media_umidade_media.toFixed(1)}%</p>
+                            <p><strong>Semanas consecutivas risco alto:</strong> ${mun.max_semanas_consec_risco_alto}</p>
+                        </div>
+                    </details>
+                `;
+                    
+                    container.appendChild(card);
+            });
+            
+            // Preencher os KPIs principais no topo
+            document.getElementById("kpi-total-casos").textContent = totalCasos.toLocaleString("pt-BR");
+            const incidenciaMedia = (totalCasos / totalPop) * 1000;
+            document.getElementById("kpi-incidencia").textContent = incidenciaMedia.toFixed(2);
+            document.getElementById("kpi-top-municipio").textContent = municipioTop;
+            document.getElementById("kpi-variacao").textContent = "--"; // precisa de dados semanais para calcular
+
+            carregarMapaGeojson(dados);
+        }
+
+        carregarKpisAtemporais();
+
+            
+        async function carregarKpisTemporais() {
+            function semanaEpiParaData(ano, semana){
+                const dia = (semana - 1) * 7;
+                const data = new Date(ano, 0, 1 + dia);
+                return data
+            }
+
+            function getAnoMesReal(semanaEpi) {
+                const ano = Math.floor(semanaEpi / 100);
+                const semana = semanaEpi % 100;
+                const data = semanaEpiParaData(ano, semana);
+                const mes = data.getMonth() + 1;
+                return `${ano}-${String(mes).padStart(2, '0')}`;
+            }
+
+            const response = await fetch('/kpis/temporais');
+            const dadosTemporais = await response.json();
+
+            const agrupadoPorMes = {};
+
+            dadosTemporais.forEach(d => {
+                const mesReal = getAnoMesReal(d.semana_epidemiologica);
+                if (!agrupadoPorMes[mesReal]) {
+                    agrupadoPorMes[mesReal] = 0
+                }
+
+                agrupadoPorMes[mesReal] += d.total_casos;
+            });
+
+            const mesesOrdenados = Object.keys(agrupadoPorMes).sort();
+            const [mesAnterior, mesAtual] = mesesOrdenados.slice(-2);
+
+            const casosMesAnterior = agrupadoPorMes[mesAnterior];
+            const casosMesAtual = agrupadoPorMes[mesAtual];
+
+            let variacaoMensal = 0;
+            if (casosMesAnterior > 0) {
+                variacaoMensal = ((casosMesAtual - casosMesAnterior) / casosMesAnterior) * 100;
+            }
+
+            const kpiElement = document.getElementById("kpi-variacao");
+            const direcao = variacaoMensal >= 0 ? "▲" : "▼";
+            const cor = variacaoMensal >= 0 ? "text-green-600" : "text-red-600";
+
+            kpiElement.innerHTML = `<span class="flex items-center gap-1 ${cor} font-semibold">${direcao} ${Math.abs(variacaoMensal).toFixed(1)}%</span>`;
+            } 
+            
+            carregarKpisTemporais();
+
+            
+
+            function carregarMapaGeojson(kpis) {
+                const mapa = L.map('mapa', {
+                    center: [-21.9, -43.2],
+                    zoom: 7,
+                    minZoom: 6,
+                    maxZoom: 12,
+                    maxBounds: [
+                        [-25.5, -46.5],
+                        [-19.0, -39.5]
+                    ],
+                    maxBoundsViscosity: 1.0
+                });
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap'
+                }).addTo(mapa);
+
+                fetch('/geojson/municipios-rj')
+                    .then(res => res.json())
+                    .then(geojson => {
+                        L.geoJSON(geojson, {
+                            style: feature => {
+                                const nomeGeo = feature.properties?.name_muni?.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                const dadosMun = kpis.find(m =>    m.municipios.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === nomeGeo);
+
+                                const incidencia = dadosMun ? dadosMun.incidencia_100k : 0;
+                                const nivel = getNivelPorIncidencia(incidencia);                            
+
+                                return {
+                                    fillColor: getCorPorNivel(nivel),
+                                    color: "#000",
+                                    weight: 2,
+                                    fillOpacity: 0.7
+                                };
+                            },
+                            onEachFeature: (feature, layer) => {
+                                const nomeGeo = feature.properties?.name_muni?.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                const dadosMun = kpis.find(m => {
+                                const nomeKpi = m.municipios.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                return nomeKpi === nomeGeo;
+                                });
+
+                                if (dadosMun) {
+                                    layer.bindPopup(`
+                                        <strong>${feature.properties.name_muni}</strong><br>
+                                        População: ${dadosMun.pop.toLocaleString("pt-BR")}<br>
+                                        Casos: ${dadosMun.total_casos}<br>
+                                        Incidência: ${dadosMun.incidencia_100k.toFixed(2)}
+                                    `);
+                                } else {
+                                        layer.bindPopup(`<strong>${feature.properties.name_muni}</strong><br>Dados não disponíveis.`);
+                                }
+                            }
+                        }).addTo(mapa);
+                    });
+            }
+
+            function getNivelPorIncidencia(incidencia) {
+                if (incidencia > 20) return 4;
+                if (incidencia > 10) return 3;
+                if (incidencia > 5) return 2;
+                return 1 ;
+            }
+
+            function getCorPorNivel(nivel) {
+                switch (nivel) {
+                    case 4: return '#e32a1c';
+                    case 3: return '#fd8d3c';
+                    case 2: return '#fed976';
+                    case 1: return '#31a354';
+                    default: return '#ccc';
+                }
+            }
+
+                async function carregarGraficoEvolucao() {
+                    const resposta = await fetch('/kpis/temporais');
+                    const dados = await resposta.json();
+
+                    const casosPorMes = {};
+
+                    dados.forEach(item => {
+                        const ano = Math.floor(item.semana_epidemiologica / 100);
+                        const semana = item.semana_epidemiologica % 100;
+                        const mesEstimado = Math.min(Math.ceil(semana/ 4.345), 12); // no máximo mês 12
+
+                        const chaveMes = `${ano}-${mesEstimado.toString().padStart(2, '0')}`;
+                        
+                        if (!casosPorMes[chaveMes]) {
+                            casosPorMes[chaveMes] = 0;
+                        }
+                        casosPorMes[chaveMes] += item.total_casos;
+                    });
+
+                    const mesesOrdenados = Object.keys(casosPorMes).sort();
+                    const valores = mesesOrdenados.map(mes => casosPorMes[mes]);
+                    const labelsFormatados = mesesOrdenados.map(formatarMesAno);
+
+                    // Criar o gráfico com Chart.js
+                    const ctx = document.getElementById("grafico-evolucao").getContext("2d");
+
+                    new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labelsFormatados,
+                            datasets: [{
+                                label: "Casos por Mês",
+                                data: valores,
+                                backgroundColor: "#fecaca", 
+                                borderColor: "#e11d48",
+                                borderWidth: 2
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    title: {
+                                        display: true,
+                                        text: "Casos",
+                                    }
+                                },
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: "Mês"
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    display: false
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // Função para converter "2024-01" → "Jan/2024"
+                function formatarMesAno(chave) {
+                    const [ano, mes] = chave.split("-");
+                    const nomeMeses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+                    return `${nomeMeses[parseInt(mes) - 1]}/${ano.slice(2)}`;
+                }
+
+                carregarGraficoEvolucao();
+            
+            
+                
+        </script>
+    </body>
+    </html>

@@ -1,0 +1,128 @@
+<script>
+let dadosAtemporais = []; // Armazenar para reutilizar
+let dadosTemporais = []; // Armazenar dados semanais para o gráfico
+let graficoEvolucao = null;
+
+// Carregar KPIs estáticos
+async function carregarKpisAtemporais() {
+    const resposta = await fetch('/kpis/atemporais');
+    dadosAtemporais = await resposta.json();
+    atualizarKpisPorMunicipio("todos");
+}
+
+// Carregar dados semanais
+async function carregarKpisTemporais() {
+    const resposta = await fetch('/kpis/temporais');
+    dadosTemporais = await resposta.json();
+    atualizarGraficoEvolucao("todos");
+}
+
+// Atualiza os cards do container e os KPIs principais
+function atualizarKpisPorMunicipio(municipioSelecionado) {
+    const container = document.getElementById("cards-kpis-municipios");
+    container.innerHTML = "";
+
+    let totalCasos = 0;
+    let totalPop = 0;
+    let maiorIncidencia = 0;
+    let municipioTop = "";
+
+    const dadosFiltrados = municipioSelecionado === "todos"
+        ? dadosAtemporais
+        : dadosAtemporais.filter(m => m.municipios === municipioSelecionado);
+
+    dadosFiltrados.forEach(mun => {
+        totalCasos += mun.total_casos;
+        totalPop += mun.pop;
+
+        if (mun.incidencia_100k > maiorIncidencia) {
+            maiorIncidencia = mun.incidencia_100k;
+            municipioTop = mun.municipios;
+        }
+
+        const card = document.createElement("div");
+        card.className = "bg-white rounded-xl shadow-md p-4";
+        card.innerHTML = `
+            <h3 class="text-lg font-bold text-red-600 mb-2">${mun.municipios}</h3>
+            <p class="text-sm text-gray-600"><strong>Total de casos:</strong> ${mun.total_casos}</p>
+            <p class="text-sm text-gray-600"><strong>Incidência:</strong> ${mun.incidencia_100k.toFixed(2)}</p>
+            <p class="text-sm text-gray-600"><strong>Semana pico:</strong> ${mun.semana_pico}</p>
+            <details class="mt-2">
+                <summary class="text-sm text-blue-600 cursor-pointer hover:underline">Ver mais</summary>
+                <div class="mt-2 space-y-1 text-sm text-gray-700">
+                    <p><strong>Casos no pico:</strong> ${mun.casos_pico}</p>
+                    <p><strong>Densidade de casos:</strong> ${mun.densidade_casos}</p>
+                    <p><strong>Teve risco alto:</strong> ${mun.teve_risco_alto ? "Sim" : "Não"}</p>
+                    <p><strong>Risco alto última semana:</strong> ${mun.teve_risco_alto_ultima_semana ? "Sim" : "Não"}</p>
+                    <p><strong>Cor. temp. média x casos:</strong> ${mun.corrrelacao_tempmed_casos.toFixed(2)}</p>
+                    <p><strong>Cor. umidade média x casos:</strong> ${mun.kpi_correlacao_umid_media_casos.toFixed(2)}</p>
+                    <p><strong>Média temp. máx:</strong> ${mun.media_temp_max.toFixed(1)}°C</p>
+                    <p><strong>Média temp. min:</strong> ${mun.media_temp_min.toFixed(1)}°C</p>
+                    <p><strong>Média temp. média:</strong> ${mun.media_temp_media.toFixed(1)}°C</p>
+                    <p><strong>Média umid. máx:</strong> ${mun.media_umidade_max.toFixed(1)}%</p>
+                    <p><strong>Média umid. min:</strong> ${mun.media_umidade_mini.toFixed(1)}%</p>
+                    <p><strong>Média umid. média:</strong> ${mun.media_umidade_media.toFixed(1)}%</p>
+                    <p><strong>Semanas consecutivas risco alto:</strong> ${mun.max_semanas_consec_risco_alto}</p>
+                </div>
+            </details>
+        `;
+        container.appendChild(card);
+    });
+
+    document.getElementById("kpi-total-casos").textContent = totalCasos.toLocaleString("pt-BR");
+    const incidenciaMedia = (totalCasos / totalPop) * 1000;
+    document.getElementById("kpi-incidencia").textContent = incidenciaMedia.toFixed(2);
+    document.getElementById("kpi-top-municipio").textContent = municipioTop || "--";
+}
+
+// Atualiza o gráfico de evolução
+function atualizarGraficoEvolucao(municipioSelecionado) {
+    const ctx = document.getElementById("grafico-evolucao").getContext("2d");
+
+    const dadosFiltrados = municipioSelecionado === "todos"
+        ? dadosTemporais
+        : dadosTemporais.filter(item => item.municipio === municipioSelecionado);
+
+    const agrupadoPorSemana = {};
+    dadosFiltrados.forEach(d => {
+        const chave = `${d.ano}-S${d.semana}`;
+        agrupadoPorSemana[chave] = (agrupadoPorSemana[chave] || 0) + d.casos;
+    });
+
+    const labels = Object.keys(agrupadoPorSemana).sort();
+    const valores = labels.map(label => agrupadoPorSemana[label]);
+
+    if (graficoEvolucao) graficoEvolucao.destroy();
+    graficoEvolucao = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Casos por Semana',
+                data: valores,
+                borderColor: '#e3342f',
+                backgroundColor: 'rgba(227,52,47,0.2)',
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                x: { title: { display: true, text: 'Semana Epidemiológica' }},
+                y: { title: { display: true, text: 'Casos' }}
+            }
+        }
+    });
+}
+
+// Listener de filtro
+document.getElementById("filtro-municipio").addEventListener("change", (e) => {
+    const municipio = e.target.value;
+    atualizarKpisPorMunicipio(municipio);
+    atualizarGraficoEvolucao(municipio);
+});
+
+// Inicialização
+carregarKpisAtemporais();
+carregarKpisTemporais();
+</script>
